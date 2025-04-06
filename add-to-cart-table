@@ -1,0 +1,321 @@
+ 
+  <!-- {%- if product.metafields.custom.grouped_products.value -%}
+  {%- for alt_product in product.metafields.custom.grouped_products.value -%}
+    {%- if alt_product.available -%}
+    <a href="{{ alt_product.url }}" title="{{ alt_product.title }}">
+      <img class="collection-img"src="{{ alt_product.featured_image | img_url: '200x400', crop: 'center', format: 'pjpg' }}" alt="{{ alt_product.title }}" loading="lazy"></a>
+    {%- endif -%}
+   {%- endfor -%}
+   {%- endif -%} -->
+
+            {%- if product.metafields.custom.grouped_products.value -%}
+  
+
+  <table class="grouped-products-table">
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>Title</th>
+        <th>Price</th>
+        <th>Add to cart</th>
+      </tr>
+    </thead>
+    <tbody id="grouped-products-table">
+      
+    </tbody>
+  </table>
+ <button onclick="bulkAddToCart()"><i class="fa fa-shopping-cart" aria-hidden="true"></i>Add selected Items to Cart</button>
+{%- endif -%}
+
+              <script>
+    var groupedProducts = {{ product.metafields.custom.grouped_products.value | json }};
+    console.log("Grouped Products Value:", groupedProducts);
+    window.groupedSKUs = {{ product.metafields.custom.grouped_products.value | split: ',' | json }};
+                
+    function getNumericVariantId(variantId) {
+    return variantId.replace("gid://shopify/ProductVariant/", "");
+  }
+
+  async function fetchProductBySKU(sku) {
+  const query = `
+ query FetchProductBySKU($sku: String!) {
+      products(first: 1, query: $sku) {
+        edges {
+          node {
+            title
+            variants(first: 1) {
+              edges {
+                node {
+                id
+                sku
+                  price{
+                      amount
+                      currencyCode
+                    }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    `;
+
+    try {
+      console.log('Fetching product for SKU:', sku);
+      const response = await fetch('https://enriketa-cara.myshopify.com/api/2024-01/graphql.json', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Storefront-Access-Token': '9bb33d35df0c4064753a10acf0968a6b'
+        },
+        body: JSON.stringify({
+          query,
+           variables: { sku }
+        })
+      });
+      const data = await response.json();
+      console.log('Data from GraphQL:', data);
+      const product = data?.data?.products?.edges?.[0]?.node;
+      if (!product) return null;
+      
+      const variant = product.variants.edges[0].node;
+      const numericId = getNumericVariantId(variant.id);
+      console.log('Numeric variant id:', numericId);
+      
+      return {
+        sku: variant.sku,
+        title: product.title,
+        price:`${variant.price.currencyCode} ${variant.price.amount}`,
+        variantId: variant.id,
+        numericId: numericId
+      };
+    } catch (error) {
+      console.error('Error fetching product by SKU:', sku, error);
+      return null;
+    }
+  }
+
+
+  async function renderGroupedProductTable() {
+    if (!window.groupedSKUs) return;
+    const tbody = document.getElementById('grouped-products-table');
+    if (!tbody) return;
+
+    for (const sku of window.groupedSKUs) {
+      const product = await fetchProductBySKU(sku);
+      if (!product) continue;
+      
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${product.sku}</td>
+        <td>${product.title}</td>
+        <td>$${product.price}</td>
+        <td>
+          <input type="number" id="qty-${product.numericId}" value="0" min="0" style="width:50px;">
+          <button onclick="addSingleItem('${product.numericId}')"><i class="fa fa-shopping-cart" aria-hidden="true"></i></button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    }
+  }
+
+  function addSingleItem(numericId) {
+    const qtyInput = document.getElementById(`qty-${numericId}`);
+    const quantity = qtyInput ? parseInt(qtyInput.value) : 0;
+    if (quantity > 0) {
+      addToCart([{ id: numericId, quantity }]);
+    } else {
+      alert('Quantity must be greater than 0.');
+    }
+  }
+
+  function bulkAddToCart() {
+    const items = [];
+    const inputs = document.querySelectorAll('#grouped-products-table input[id^="qty-"]');
+    inputs.forEach(input => {
+      const numericId = input.id.replace('qty-', '');
+      const quantity = parseInt(input.value) || 0;
+      if (quantity > 0) {
+        items.push({ id: numericId, quantity });
+      }
+    });
+  
+    if (items.length === 0) {
+      alert("No items selected to add to cart!");
+      return;
+    }
+    addToCart(items);
+  }
+
+  function addToCart(items) {
+    const formData = { items };
+    fetch(window.Shopify.routes.root + 'cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+      console.log('Added to cart:', data);
+      alert('Products added to cart!');
+    })
+    .catch(error => {
+      console.error('Error adding to cart:', error);
+      alert('Failed to add products to cart.');
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', renderGroupedProductTable);
+</script>
+
+              
+<style>
+  /* Table styles */
+  .grouped-products-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    font-family: Arial, sans-serif;
+  }
+  
+  .grouped-products-table th,
+  .grouped-products-table td {
+    padding: 12px 15px;
+    border: 1px solid #ddd;
+    text-align: left;
+  }
+  
+  .grouped-products-table thead {
+    background-color: #f7f7f7;
+  }
+
+  
+  /* Button styles */
+  button {
+    background-color: #234c2c;;
+    color: #fff;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    margin-top: 20px;
+    cursor: pointer;
+    font-size: 16px;
+    font-family: Arial, sans-serif;
+  }
+  
+  button:hover {
+    background-color: #218838;
+  }
+
+
+   .grouped-products-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    font-family: Arial, sans-serif;
+  }
+  
+  .grouped-products-table th,
+  .grouped-products-table td {
+    padding: 12px 15px;
+    border: 1px solid #ddd;
+    text-align: left;
+  }
+  
+  .grouped-products-table thead {
+    background-color: #f7f7f7;
+  }
+ 
+input[type=number] {
+    box-sizing: border-box;
+    width: 100%;
+    /* padding: 10px 15px; */
+    font-size: 16px;
+    border: 2px solid #ccc;
+    border-radius: 6px;
+    background-color: #fff;
+    color: #333;
+    height: 37px;
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    -moz-appearance: textfield;
+}
+                        .page-width{
+                         
+                         padding-left: 5%;
+                         padding-right: 5%;
+                        }
+                    .option-label {
+                        display: flex;
+                        align-items: center;
+                        font-size: 18px;
+                    }
+                        .collection-img1 {
+                        margin: 0 4% 2% 0;
+                        height: 200px;
+                        width: 310px;
+                        }
+                    .info-icon {
+                        font-size: 16px;
+                        margin-left: 5px;
+                        background-color: #ff9900;
+                        color: black;
+                        border-radius: 50%;
+                        width: 18px;
+                        height: 18px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-weight: bold;
+                        cursor: pointer;
+                    }
+                  
+                    .resolution-btn, .format-btn {
+                        padding: 10px 18px;
+                        border-radius: 4px;
+                        border: 0.5px solid #666;
+                        background: black;
+                        color: white;
+                        margin: 2px;
+                        cursor: pointer;
+                        font-size: 16px;
+                        transition: 0.3s ease-in-out;
+                    }
+                    .resolution-btn.active, .format-btn.active {
+                        background: linear-gradient(45deg, #c156be73, #49acef);
+                    }
+                    .screen-type label {
+                        cursor: pointer;
+                        font-size: 16px;
+                    }
+                    .screen-type input[type="radio"]:checked + span {
+                        /*color: #9a9ac6;*/
+                    }
+                        .grouped-products-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  font-family: sans-serif;
+  font-size: 14px;
+}
+
+.grouped-products-table thead {
+  background-color: #333;
+  color: #fff;
+}
+
+.grouped-products-table th,
+.grouped-products-table td {
+  padding: 10px 15px;
+  border: 1px solid #ddd;
+  text-align: left;
+  vertical-align: middle;
+}
+
+
+
+.grouped-products-table .price {
+  color: #c0392b;
+  font-weight: bold;
+}
+</style>
